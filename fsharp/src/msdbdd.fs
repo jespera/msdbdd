@@ -1,24 +1,34 @@
 namespace Msd
 
 module Atom =
-  type elmt = obj list ref
-  let mk() : elmt = ref <| []
+  type elmt = exn ref
+
+  exception Empty
+
+  exception Val of obj list
+
+  let mk() : elmt = ref Empty
+
   let equal (a : elmt) (b : elmt) = a = b
-  let disc (args : (elmt * 'a) list) : 'a list list =
+
+  let f (x : obj) = x
+
+  let disc (args : (elmt * obj) list) : obj list list =
     let folder atoms args =
       match args with
-      | atom, v when !atom = [] ->
-        atom := [v]
+      | atom, v when !atom = Empty ->
+        atom := Val [v]
         atom :: atoms
       | atom, v ->
-        atom := v :: !atom
+        match !atom with
+        | Val vs -> atom := Val <| v :: vs
         atoms
     let mapper atom =
       match atom with
-      | atom when !atom = [] -> failwith "empty?"
+      | atom when !atom = Empty -> failwith "empty?"
       | atom ->
-        let vs = !atom
-        atom := []
+        let (Val vs) = !atom
+        atom := Empty
         vs
     match args with
     | [] -> []
@@ -26,15 +36,15 @@ module Atom =
     | args ->
       List.fold folder [] args
         |> List.map mapper
-        
+
 module SimpleDURef =
   type 'a durefC =
     | ECR of 'a * Atom.elmt
     | PTR of 'a duref
   and 'a duref = 'a durefC ref
-  
+
   let duref x : _ duref = ref <| ECR(x, Atom.mk())
-  
+
   let rec find (p : _ duref) =
     match !p with
     | ECR _ -> p
@@ -42,12 +52,12 @@ module SimpleDURef =
       let p'' = find p'
       p := PTR p''
       p''
-  
+
   let deref (p : _ duref) =
     match !(find p) with
     | ECR(x,_) -> x
     | PTR _ -> failwith "!!PTR"
-    
+
   let disc (ns : ('a duref * 'b) list) : 'b list list =
     ns |> List.map (fun (p, v) ->
       match !(find p) with
@@ -62,14 +72,14 @@ module SimpleDURef =
     | ECR (_, a) ->
       p' := ECR(x,a)
     | PTR _ -> failwith "unexpected PTR in update"
-    
+
   let link p q =
     let p' = find p
     let q' = find q
     if p' = q'  then () else p' := PTR q'
-  
+
   let union = link
-  
+
   let unify f p q =
     let v = f(deref p, deref q)
     union p q
@@ -83,20 +93,20 @@ module Node =
     | IF of int * nodeVal duref * nodeVal duref
     | APPLY of nodeVal duref * nodeVal duref
   type node = nodeVal duref
-  
+
   let deref = deref
-  
+
   let tt = duref TRUE
   let ff = duref FALSE
   let newIf = IF >> duref
   let newApply = APPLY >> duref
-  
+
   let discNode = disc
   let equal = equal
-  
+
   let rec discNodeVal' (trues, falses, ifs, applies) ns =
     match ns with
-    | (TRUE, v) :: rest -> 
+    | (TRUE, v) :: rest ->
       discNodeVal' (v :: trues, falses, ifs, applies) rest
     | (FALSE, v) :: rest ->
       discNodeVal' (trues, v :: falses, ifs, applies) rest
@@ -108,4 +118,4 @@ module Node =
       let ifDisc = List.concat <| List.map discNode (discNode ifs)
       let appliesDisc = List.concat <| List.map discNode (discNode applies)
       List.filter (not << List.isEmpty) [trues; falses] @ ifsDisc @ appliesDisc
-      
+
