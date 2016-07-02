@@ -1,35 +1,38 @@
 namespace Msd
 
 module Atom =
+  open System
+
   type elmt = exn ref
 
   exception Empty
 
-  exception Val of obj list
+  type Val<'a> (vs : 'a list) =
+    inherit Exception("err")
+    member __.vs = vs
 
   let mk() : elmt = ref Empty
 
   let equal (a : elmt) (b : elmt) = a = b
 
-  let f (x : obj) = x
-
-  let disc (args : (elmt * obj) list) : obj list list =
+  let disc (args : (elmt * 'a) list) : 'a list list =
     let folder atoms args =
       match args with
       | atom, v when !atom = Empty ->
-        atom := Val [v]
+        atom := (Val [v] :> exn)
         atom :: atoms
       | atom, v ->
         match !atom with
-        | Val vs -> atom := Val <| v :: vs
+        | :? Val<_> as va -> atom := (Val <| v :: va.vs) :> exn
         atoms
     let mapper atom =
       match atom with
       | atom when !atom = Empty -> failwith "empty?"
       | atom ->
-        let (Val vs) = !atom
-        atom := Empty
-        vs
+        match !atom with
+        | :? Val<_> as va ->
+          atom := Empty
+          va.vs
     match args with
     | [] -> []
     | [(_, v)] -> [[v]]
@@ -58,7 +61,7 @@ module SimpleDURef =
     | ECR(x,_) -> x
     | PTR _ -> failwith "!!PTR"
 
-  let disc (ns : ('a duref * 'b) list) : 'b list list =
+  let disc ns =
     ns |> List.map (fun (p, v) ->
       match !(find p) with
       | ECR (_, a) -> a, v
@@ -101,10 +104,10 @@ module Node =
   let newIf = IF >> duref
   let newApply = APPLY >> duref
 
-  let discNode = disc
-  let equal = equal
+  let discNode x = disc x
+  let equal x = equal x
 
-  let rec discNodeVal' (trues, falses, ifs, applies) ns =
+  let rec discNodeVal' (trues, falses, ifs : (nodeVal duref * (nodeVal duref * obj)) list, applies) ns =
     match ns with
     | (TRUE, v) :: rest ->
       discNodeVal' (v :: trues, falses, ifs, applies) rest
@@ -115,7 +118,8 @@ module Node =
     | (APPLY(n1,n2), v) :: rest ->
       discNodeVal' (trues, falses, ifs, (n1, (n2, v)) :: applies) rest
     | [] ->
-      let ifDisc = List.concat <| List.map discNode (discNode ifs)
-      let appliesDisc = List.concat <| List.map discNode (discNode applies)
-      List.filter (not << List.isEmpty) [trues; falses] @ ifsDisc @ appliesDisc
-
+      let ifDisc = List.map discNode <| discNode ifs
+                    |> List.concat
+      let appliesDisc = List.map discNode (discNode applies) |> List.concat
+      [trues; falses] @ ifDisc @ appliesDisc
+        |> List.filter (not << List.isEmpty)
