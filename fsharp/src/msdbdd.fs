@@ -107,7 +107,7 @@ module Node =
   let discNode x = disc x
   let equal x = equal x
 
-  let rec discNodeVal' (trues, falses, ifs : (nodeVal duref * (nodeVal duref * obj)) list, applies) ns =
+  let rec discNodeVal' (trues, falses, ifs, applies) ns =
     match ns with
     | (TRUE, v) :: rest ->
       discNodeVal' (v :: trues, falses, ifs, applies) rest
@@ -123,3 +123,29 @@ module Node =
       let appliesDisc = List.map discNode (discNode applies) |> List.concat
       [trues; falses] @ ifDisc @ appliesDisc
         |> List.filter (not << List.isEmpty)
+
+  let discNodeVal args =
+    discNodeVal' ([], [], [], []) args
+  
+  let partitionByContent ns = 
+    ns |> List.map (fun n -> deref n, n) |> discNodeVal
+
+  let unify (ns : node list) =
+    match ns with
+    | [] -> ()
+    | n :: ns' -> List.iter (fun n' -> link n' n; ()) ns'
+    
+module NodeHeap =
+  type node = Node.node
+  let mk n =
+    let m = Array.create n []
+    let lookup i = m.[i]
+    let update i elmts = m.[i] <- elmts
+    let add i elmt = m.[i] <- elmt :: m.[i]
+    let app f =
+      Array.iteri (fun i elmts -> m.[i] <- f elmts) m
+    let revapp f =
+      for i = Array.length m - 1 downto 0 do m.[i] <- f m.[i]
+    lookup, update, add, app, revapp
+
+
